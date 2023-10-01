@@ -30,8 +30,8 @@ Figure 1. Circuit for operating the 2 LEDs with the microcontroller. Resistors R
 | \>1s pushbutton press | Display "--"; Turn off LEDs |
 
 ### Notes:
-- All pushbutton actions must be applied on release.
-- Must use a suitable debounce approach for RPG and push button (as discussed in lecture).
-- Must use a lookup table in program memory to store 7-segment patterns.
-- Current driving each segment in the 7-segment display must be <= 6 mA.
-- Must utilize 8-bit Timer/Counter0 hardware (without interrupts) for generating all required time sequences.
+* All pushbutton actions must be applied on release.
+* Must use a suitable debounce approach for RPG and push button (as discussed in lecture).
+* Must use a lookup table in program memory to store 7-segment patterns.
+* Current driving each segment in the 7-segment display must be <= 6 mA.
+* Must utilize 8-bit Timer/Counter0 hardware (without interrupts) for generating all required time sequences.
