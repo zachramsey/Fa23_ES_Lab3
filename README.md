@@ -11,7 +11,8 @@ Upload source code and report to ICON (one source code file and report per group
 ### Lab Description
 Construct a 60 second countdown timer that controls an LED-based light source using a rotary pulse generator (RPG), two 8-bit shift registers, a push-button switch, two 7-segment LED displays, and all components required to control the LEDs (Fig. 1).
 
-| ![Figure 1](res/Desc_Fig1.png) | Figure 1. Circuit for operating the 2 LEDs with the microcontroller. Resistors R1 and R2 limit the current through each LED to about 19 mA, resulting in a Q1 collector current of 38 mA.
+![Figure 1](res/Desc_Fig1.png) | Figure 1. Circuit for operating the 2 LEDs with the microcontroller. Resistors R1 and R2 limit the current through each LED to about 19 mA, resulting in a Q1 collector current of 38 mA.
+--- | ---
 
 ---
 
