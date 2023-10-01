@@ -19,21 +19,15 @@ Figure 1. Circuit for operating the 2 LEDs with the microcontroller. Resistors R
 ### Operation:
 | **Condition** | **Function** |
 |:--- |:--- |
-| Startup | Display “--“
-| CW RPG operation | Increment displayed value  
-(“--“ -> “01” -> “02” -> ... -> “60”) |
-| CCW RPG operation | Decrement displayed value  
-(“60” -> “59” -> ... -> “00” -> “--“) |
+| Startup | Display “--“ |
+| CW RPG operation | Increment displayed value (“--“ -> “01” -> “02” -> ... -> “60”) |
+| CCW RPG operation | Decrement displayed value (“60” -> “59” -> ... -> “00” -> “--“) |
 | Displaying “60” & CW RPG operation | No change to display |
 | Displaying “--” & CCW RPG operation | No change to display |
-| <1s pushbutton press | LEDs turn on  
-Begin decrement once per second from displayed value |
-| Decrement reaches “00" | LEDs turn off  
-Wait 1 second -> Display “--“  
-Allow new value selection |
+| <1s pushbutton press | LEDs turn on; Begin decrement once per second from displayed value |
+| Decrement reaches “00" | LEDs turn off; Wait 1 second; Display “--“; Allow new value selection |
 | Count-down active & RPG operated | No change, ignore input |
-| \>1s pushbutton press | Display "--"  
-Turn off LEDs |
+| \>1s pushbutton press | Display "--"; Turn off LEDs |
 
 ### Notes:
 All action must be applied once the pushbutton is released
