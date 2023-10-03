@@ -20,7 +20,7 @@ Construct a 60 second countdown timer that controls an LED-based light source us
 | **Condition** | **Function** |
 |:--- |:--- |
 | Startup | Display “--“ |
-| CW RPG operation | Increment displayed value (“--“ -> “01” -> “02” -> ... -> “60”) |
+| CW RPG operation | Increment displayed value (“--“ -> “00” -> “01” -> ... -> “60”) |
 | CCW RPG operation | Decrement displayed value (“60” -> “59” -> ... -> “00” -> “--“) |
 | Displaying “60” & CW RPG operation | No change to display |
 | Displaying “--” & CCW RPG operation | No change to display |
