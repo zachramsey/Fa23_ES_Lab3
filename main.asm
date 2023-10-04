@@ -1,7 +1,7 @@
 ;====================================
 ; StopwatchLab2.asm
 ;
-; Created: 10/03/2023 7:02:54 PM
+; Created: 9/12/2023 7:02:54 PM
 ; Authors: Trey Vokoun & Zach Ramsey
 ;====================================
 
@@ -103,13 +103,13 @@ ldi Disp_Queue, 0x39
 rcall display
 
 main:
-	sbrc Ctrl_Reg, 1	;
+	sbic PIND, 6		; Skip if bit in I/O for RPG-A cleared
 	rcall CW			;
 
-	sbrc Ctrl_Reg, 2	;
+	sbic PIND, 5		;Skip if bit in I/O for RPG-B cleared
 	rcall CCW			;
 
-	sbrs Ctrl_Reg, 0	;
+	sbis PIND, 7		;Skip if bit in I/O for buttonA set
 	rcall AButton		; 
 
 rjmp main
@@ -117,7 +117,7 @@ rjmp main
 ;===================| Functions |====================
 CW:
 	CWL1:
-		sbrc Ctrl_Reg, 2
+		sbic PIND, 5
 	brne CWL1
 	ldi Disp_Queue, 0x77
 	rcall display
@@ -125,7 +125,7 @@ ret
 
 CCW:
 	CCWL1:
-		sbrc Ctrl_Reg, 1
+		sbic PIND, 6
 	brne CWL1
 	ldi Disp_Queue, 0x7C
 	rcall display
@@ -133,7 +133,7 @@ ret
 
 AButton:
 	ABL1:
-		sbrc Ctrl_Reg, 2
+		sbic PIND, 7
 		sbi PORTB, 3
 	brne ABL1
 	cbi PORTB, 3
