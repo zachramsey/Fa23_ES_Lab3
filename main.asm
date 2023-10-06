@@ -9,6 +9,7 @@
 .cseg
 .org 0
 
+
 ;==================| Configure I/O |=================
 ; Output to shiftreg SN74HC595
 sbi DDRB,0	; Board Pin 8 O/P: PB0 -> ShiftReg I/P: SER
@@ -31,6 +32,7 @@ cbi DDRD,5  ; Board Pin 5 RPG B -> Board I/P: PD5
 .def RPG_Curr = R21			; Current RPG input state
 .def RPG_Bckp = R22			; Backup current RPG input state
 .def RPG_Prev = R23			; previous RPG input state
+.def Ptrn_Cnt = R24			; Pattern counter
 
 ; Custom state register masks
 .equ PB_State = 0b00000001		; bit 0: button A was pressed   (0:None     | 1:Pressed)
@@ -54,14 +56,86 @@ cbi DDRD,5  ; Board Pin 5 RPG B -> Board I/P: PD5
 ; sbrs Ctrl_Reg, (reg bit #)
 ;---------------
 
+
+;=========| Load Values to Digit_Patterns |==========
+rjmp Init	; don't execute data!
+Patterns:
+	.dw 0x4040	; --
+	.dw 0x3F3F	; 00
+	.dw 0x3F06	; 01
+	.dw 0x3F5B	; 02
+	.dw 0x3F4F	; 03
+	.dw 0x3F66	; 04
+	.dw 0x3F6D	; 05
+	.dw 0x3F7D	; 06
+	.dw 0x3F07	; 07
+	.dw 0x3F7F	; 08
+	.dw 0x3F67	; 09
+	.dw 0x063F	; 10
+	.dw 0x0606	; 11
+	.dw 0x065B	; 12
+	.dw 0x064F	; 13
+	.dw 0x0666	; 14
+	.dw 0x066D	; 15
+	.dw 0x067D	; 16
+	.dw 0x0607	; 17
+	.dw 0x067F	; 18
+	.dw 0x0667	; 19
+	.dw 0x5B3F	; 20
+	.dw 0x5B06	; 21
+	.dw 0x5B5B	; 22
+	.dw 0x5B4F	; 23
+	.dw 0x5B66	; 24
+	.dw 0x5B6D	; 25
+	.dw 0x5B7D	; 26
+	.dw 0x5B07	; 27
+	.dw 0x5B7F	; 28
+	.dw 0x5B67	; 29
+	.dw 0x4F3F	; 30
+	.dw 0x4F06	; 31
+	.dw 0x4F5B	; 32
+	.dw 0x4F4F	; 33
+	.dw 0x4F66	; 34
+	.dw 0x4F6D	; 35
+	.dw 0x4F7D	; 36
+	.dw 0x4F07	; 37
+	.dw 0x4F7F	; 38
+	.dw 0x4F67	; 39
+	.dw 0x663F	; 40
+	.dw 0x6606	; 41
+	.dw 0x665B	; 42
+	.dw 0x664F	; 43
+	.dw 0x6666	; 44
+	.dw 0x666D	; 45
+	.dw 0x667D	; 46
+	.dw 0x6607	; 47
+	.dw 0x667F	; 48
+	.dw 0x6667	; 49
+	.dw 0x6D3F	; 50
+	.dw 0x6D06	; 51
+	.dw 0x6D5B	; 52
+	.dw 0x6D4F	; 53
+	.dw 0x6D66	; 54
+	.dw 0x6D6D	; 55
+	.dw 0x6D7D	; 56
+	.dw 0x6D07	; 57
+	.dw 0x6D7F	; 58
+	.dw 0x6D67	; 59
+	.dw 0x7D3F	; 60
+
+
 ;===================| Main Loop |====================
-init:
+Init:
 	ldi Ctrl_Reg, 0x00		; initialize Ctrl_Reg
-	ldi Disp_Queue_0, 0x40	; initialize display
+	ldi Ptrn_Cnt, 0x00		; initialize pattern counter
+	ldi R30, low(patterns<<1)    ; Load low byte of Patterns address
+	ldi R31, high(patterns<<1)   ; Load high byte of Patterns address
+	lpm Disp_Queue_0, Z+		; load first pattern
 	rcall display
+	lpm Disp_Queue_0, Z		; load second pattern
 	rcall display
 
-main:
+Main:
 	sbis PIND,7				; If PB is pressed -> Jump to Pressed
 	rcall Pressed
 
@@ -71,7 +145,8 @@ main:
 	cp RPG_Curr, RPG_Prev	; Compare current input state to previous input state
 	brne RPG_Change			; If input state has changed, jump to RPG_Change
 
-	rjmp main
+	rjmp Main
+
 
 ;===================| Functions |====================
 Pressed:
@@ -91,19 +166,25 @@ RPG_Change:
 	sbrc RPG_Prev, 5		; if current A and previous B are the same, skip
 	rjmp CCW
 CW:
-	ldi Disp_Queue_0, 0x50
-	rcall display
-	ldi Disp_Queue_0, 0x00
-	rcall display			; <- replace to here w/ CW functionality
-	mov RPG_Prev, RPG_Bckp	; restore previous input state
-	rjmp main
+	cpi Ptrn_Cnt, 62		; if pattern counter is at end of array, jump to main
+	breq Main
+	inc Ptrn_Cnt			; increment pattern counter
+	adiw zh:zl, 3			; increment Z pointer
+	rjmp Load_Pattern
 CCW:
-	ldi Disp_Queue_0, 0x00
+	cpi Ptrn_Cnt, 0			; if pattern counter is at beginning of array, jump to main
+	breq Main
+	dec Ptrn_Cnt			; decrement pattern counter
+	sbiw zh:zl, 1			; decrement Z pointer
+Load_Pattern:
+	lpm Disp_Queue_0, Z		; load first byte of word
+	sbiw zh:zl, 1			; decrement Z pointer
 	rcall display
-	ldi Disp_Queue_0, 0x38
-	rcall display			; <- replace to here w/ CCW functionality
+	lpm Disp_Queue_0, Z		; load second byte of word
+	rcall display
 	mov RPG_Prev, RPG_Bckp	; restore previous input state
-	rjmp main
+	rjmp Main
+
 
 ;============| Display Digit Subroutine |============
 display:
