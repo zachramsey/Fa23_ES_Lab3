@@ -6,13 +6,6 @@
 ;====================================
 
 .include "m328Pdef.inc" ; microcontroller-specific definitions
-
-;>>>>>Begin Data Segment<<<<<
-.dseg
-.org 0x0100
-Digit_Patterns: .byte 16	; Hex Digit Pattern Encoding
-
-;>>>>>Begin Code Segment<<<<<
 .cseg
 .org 0
 
@@ -30,22 +23,22 @@ cbi DDRD,5  ; Board Pin 5 RPG B -> Board I/P: PD5
 
 
 ;========| Configure custom state register |=========
-.def Disp_Queue = R16	; Data queue for next digit to be displayed
-.def Disp_Decr = R17	; Count of remaining bits to be pushed from Disp_Queue; decrements from 8
-.def Digit_Decr = R18	; Count of remaining digits; decrements from 16
-.def Ctrl_Reg = R19		; Custom state register
-.def Digit_Buff = R20	; Data buffer for loading to Digit_Patterns
-.def Ten_Decr = R21		; Count of remaining calls to one_delay; decrements from 10
-.def Temp = R22			; Temporary register used to assist with converting a display pattern to the same pattern but with the tens mode light on
-
+.def Disp_Queue_0 = R16		; Data queue for next digit to be displayed
+.def Disp_Queue_1 = R17		; Data queue for next digit to be displayed
+.def Disp_Decr = R18		; Count of remaining bits to be pushed from Disp_Queue; decrements from 8
+.def Digit_Count = R19		; Keeps track of which values are to be displayed
+.def Ctrl_Reg = R20			; Custom state register
+.def RPG_Curr = R21			; Current RPG input state
+.def RPG_Bckp = R22			; Backup current RPG input state
+.def RPG_Prev = R23			; previous RPG input state
 
 ; Custom state register masks
-.equ A_State = 0b00000001		; bit 0: button A was pressed   (0:None    | 1:Pressed)
-.equ A_RPG = 0b00000010			; bit 1: A_RPG Toggled          (0:Pressed?| 1:None)
-.equ B_RPG = 0b00000100			; bit 2: B_RPG Toggled			(0:Pressed?| 1:None)
-.equ Run_State = 0b00001000		; bit 3: incrementing state     (0:Stopped | 1:Running)
-.equ Reset_State = 0b00010000	; bit 4: reset state            (0:None    | 1:Reset)
-.equ Ovrflw = 0b00100000		; bit 5: overflow state         (0:None    | 1:Overflow)
+.equ PB_State = 0b00000001		; bit 0: button A was pressed   (0:None     | 1:Pressed)
+.equ RPG_A = 0b00000010			; [unused] bit 1: A_RPG activation		(0:Inactive | 1:Active)
+.equ RPG_B = 0b00000100			; [unused] bit 2: B_RPG activation		(0:Inactive | 1:Active)
+.equ Run_State = 0b00001000		; bit 3: incrementing state     (0:Stopped  | 1:Running)
+.equ Reset_State = 0b00010000	; bit 4: reset state            (0:None     | 1:Reset)
+.equ Ovrflw = 0b00100000		; bit 5: overflow state         (0:None     | 1:Overflow)
 
 ;-----Usage-----
 ; Set State:
@@ -61,99 +54,70 @@ cbi DDRD,5  ; Board Pin 5 RPG B -> Board I/P: PD5
 ; sbrs Ctrl_Reg, (reg bit #)
 ;---------------
 
-;=========| Load Values to Digit_Patterns |==========
-ldi ZH, high(Digit_Patterns)	; Move pointer to front of Digit_Patterns
-ldi ZL, low(Digit_Patterns)
-
-ldi Digit_Buff, 0x3F	; "0" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x06	; "1" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x5B	; "2" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x4F	; "3" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x66	; "4" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x6D	; "5" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x7D	; "6" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x07	; "7" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x7F	; "8" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x67	; "9" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x77	; "A" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x7C	; "b" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x39	; "C" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x5E	; "d" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x79	; "E" Pattern
-st Z+, Digit_Buff
-ldi Digit_Buff, 0x71	; "F" Pattern
-st Z+, Digit_Buff
-
 ;===================| Main Loop |====================
-ldi Disp_Queue, 0x39 
-rcall display
+init:
+	ldi Ctrl_Reg, 0x00		; initialize Ctrl_Reg
+	ldi Disp_Queue_0, 0x40	; initialize display
+	rcall display
+	rcall display
 
 main:
-	sbic PIND, 6		; Skip if bit in I/O for RPG-A cleared
-	rcall CW			;
+	sbis PIND,7				; If PB is pressed -> Jump to Pressed
+	rcall Pressed
 
-	sbic PIND, 5		;Skip if bit in I/O for RPG-B cleared
-	rcall CCW			;
+	in RPG_Curr, PIND		; Load current input state
+	andi RPG_Curr, 0x60		; Mask bits 6 and 5
+	mov RPG_Bckp, RPG_Curr	; Backup current input state
+	cp RPG_Curr, RPG_Prev	; Compare current input state to previous input state
+	brne RPG_Change			; If input state has changed, jump to RPG_Change
 
-	sbis PIND, 7		;Skip if bit in I/O for buttonA set
-	rcall AButton		; 
-
-rjmp main
+	rjmp main
 
 ;===================| Functions |====================
+Pressed:
+	sbr Ctrl_Reg, PB_State
+	sbis PIND, 7			; if PB released, skip
+	rjmp Pressed
+	ldi Disp_Queue_0, 0x7C	; <- replace w/ pushbutton functionality from here
+	rcall display
+	ldi Disp_Queue_0, 0x73
+	rcall display			; <- to here
+	ret
+	
+RPG_Change:
+	lsr RPG_Curr			; shift right
+	andi RPG_Curr, 0x20		; mask bit 5
+	eor RPG_Prev, RPG_Curr	; XOR current input state with previous input state
+	sbrc RPG_Prev, 5		; if current A and previous B are the same, skip
+	rjmp CCW
 CW:
-	CWL1:
-		sbic PIND, 5
-	brne CWL1
-	ldi Disp_Queue, 0x77
+	ldi Disp_Queue_0, 0x50
 	rcall display
-ret
-
+	ldi Disp_Queue_0, 0x00
+	rcall display			; <- replace to here w/ CW functionality
+	mov RPG_Prev, RPG_Bckp	; restore previous input state
+	rjmp main
 CCW:
-	CCWL1:
-		sbic PIND, 6
-	brne CWL1
-	ldi Disp_Queue, 0x7C
+	ldi Disp_Queue_0, 0x00
 	rcall display
-ret
-
-AButton:
-	ABL1:
-		sbic PIND, 7
-		sbi PORTB, 3
-	brne ABL1
-	cbi PORTB, 3
-	rcall display
-ret
-
+	ldi Disp_Queue_0, 0x38
+	rcall display			; <- replace to here w/ CCW functionality
+	mov RPG_Prev, RPG_Bckp	; restore previous input state
+	rjmp main
 
 ;============| Display Digit Subroutine |============
 display:
 	; backup used registers on stack
-	push Disp_Queue			; Push Disp_Queue to stack
+	push Disp_Queue_0		; Push Disp_Queue to stack
 	push Disp_Decr			; Push Disp_Decr to stack
 	in Disp_Decr, SREG		; Input from SREG -> Disp_Decr
 	push Disp_Decr			; Push Disp_Decr to stack
 	ldi Disp_Decr, 8		; loop -> test all 8 bits
 loop:
-	rol Disp_Queue			; rotate left through Carry
+	rol Disp_Queue_0		; rotate left through Carry
 	BRCS set_ser			; branch if Carry is set
 	cbi PORTB,0				; clear SER (SER -> 0)
-rjmp end
+	rjmp end
 set_ser:
 	sbi PORTB,0				; set SER (SER -> 1)
 end:
@@ -173,5 +137,5 @@ end:
 	pop Disp_Decr
 	out SREG, Disp_Decr
 	pop Disp_Decr
-	pop Disp_Queue
+	pop Disp_Queue_0
 	ret
