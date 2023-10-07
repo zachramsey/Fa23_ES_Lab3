@@ -35,12 +35,12 @@ cbi DDRD,5  ; Board Pin 5 RPG B -> Board I/P: PD5
 .def Ptrn_Cnt = R24			; Pattern counter
 
 ; Custom state register masks
-.equ PB_State = 0b00000001		; bit 0: button A was pressed   (0:None     | 1:Pressed)
-.equ RPG_A = 0b00000010			; [unused] bit 1: A_RPG activation		(0:Inactive | 1:Active)
-.equ RPG_B = 0b00000100			; [unused] bit 2: B_RPG activation		(0:Inactive | 1:Active)
-.equ Run_State = 0b00001000		; bit 3: incrementing state     (0:Stopped  | 1:Running)
-.equ Reset_State = 0b00010000	; bit 4: reset state            (0:None     | 1:Reset)
-.equ Ovrflw = 0b00100000		; bit 5: overflow state         (0:None     | 1:Overflow)
+.equ PB_State = 0x01		; bit 0: button A was pressed   (0:None     | 1:Pressed)
+.equ Prev_RPG_A = 0x02		; bit 1: A_RPG activation		(0:Inactive | 1:Active)
+.equ Prev_RPG_B = 0x04		; bit 2: B_RPG activation		(0:Inactive | 1:Active)
+.equ Run_State = 0x08		; bit 3: incrementing state     (0:Stopped  | 1:Running)
+.equ Reset_State = 0x10		; bit 4: reset state            (0:None     | 1:Reset)
+.equ Ovrflw = 0x20			; bit 5: overflow state         (0:None     | 1:Overflow)
 
 ;-----Usage-----
 ; Set State:
@@ -59,7 +59,7 @@ cbi DDRD,5  ; Board Pin 5 RPG B -> Board I/P: PD5
 
 ;=========| Load Values to Digit_Patterns |==========
 rjmp Init	; don't execute data!
-Patterns:
+Ptrns:
 	.dw 0x4040	; --
 	.dw 0x3F3F	; 00
 	.dw 0x3F06	; 01
@@ -128,25 +128,24 @@ Patterns:
 Init:
 	ldi Ctrl_Reg, 0x00		; initialize Ctrl_Reg
 	ldi Ptrn_Cnt, 0x00		; initialize pattern counter
-	ldi R30, low(patterns<<1)    ; Load low byte of Patterns address
-	ldi R31, high(patterns<<1)   ; Load high byte of Patterns address
-	lpm Disp_Queue_0, Z+		; load first pattern
+	ldi R30, low(Ptrns<<1)	; Load low byte of Patterns address
+	ldi R31, high(Ptrns<<1)	; Load high byte of Patterns address
+	lpm Disp_Queue_0, Z+	; load first pattern
 	rcall display
 	lpm Disp_Queue_0, Z		; load second pattern
 	rcall display
 
 Main:
 	sbis PIND,7				; If PB is pressed -> Jump to Pressed
-	rcall Pressed
+	rjmp Pressed
 
-	in RPG_Curr, PIND		; Load current input state
+	in RPG_Curr, PIND
 	andi RPG_Curr, 0x60		; Mask bits 6 and 5
-	mov RPG_Bckp, RPG_Curr	; Backup current input state
-	cp RPG_Curr, RPG_Prev	; Compare current input state to previous input state
-	brne RPG_Change			; If input state has changed, jump to RPG_Change
+	cpi RPG_Curr, 0x60		; if both are set, jump to RPG_Detent
+	breq RPG_Detent
+	mov RPG_Prev, RPG_Curr	; otherwise update previous input state
 
-	rjmp Main
-
+	rjmp Main				; loop back to main
 
 ;===================| Functions |====================
 Pressed:
@@ -157,32 +156,31 @@ Pressed:
 	rcall display
 	ldi Disp_Queue_0, 0x73
 	rcall display			; <- to here
-	ret
+	rjmp Main
 	
-RPG_Change:
-	lsr RPG_Curr			; shift right
-	andi RPG_Curr, 0x20		; mask bit 5
-	eor RPG_Prev, RPG_Curr	; XOR current input state with previous input state
-	sbrc RPG_Prev, 5		; if current A and previous B are the same, skip
-	rjmp CCW
+RPG_Detent:
+	cpi RPG_Prev, 0x20 		; if prev state was '01', jump to CW
+	breq CW
+	cpi RPG_Prev, 0x40 		; if prev state was '10', jump to CCW
+	breq CCW
+	rjmp Main				; otherwise, jump to Main
 CW:
-	cpi Ptrn_Cnt, 62		; if pattern counter is at end of array, jump to main
+	cpi Ptrn_Cnt, 61		; if pattern counter is at end of array, jump to main
 	breq Main
 	inc Ptrn_Cnt			; increment pattern counter
-	adiw zh:zl, 3			; increment Z pointer
+	adiw zh:zl, 1			; increment Z pointer
 	rjmp Load_Pattern
 CCW:
 	cpi Ptrn_Cnt, 0			; if pattern counter is at beginning of array, jump to main
 	breq Main
 	dec Ptrn_Cnt			; decrement pattern counter
-	sbiw zh:zl, 1			; decrement Z pointer
+	sbiw zh:zl, 3			; decrement Z pointer
 Load_Pattern:
-	lpm Disp_Queue_0, Z		; load first byte of word
-	sbiw zh:zl, 1			; decrement Z pointer
+	lpm Disp_Queue_0, Z+	; load first byte of word
 	rcall display
 	lpm Disp_Queue_0, Z		; load second byte of word
 	rcall display
-	mov RPG_Prev, RPG_Bckp	; restore previous input state
+	ldi RPG_Prev, 0x60		; set detent input state
 	rjmp Main
 
 
