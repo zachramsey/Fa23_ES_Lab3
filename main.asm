@@ -1,7 +1,7 @@
 ;====================================
 ; RPG_Lab03.asm
 ;
-; Created: 9/12/2023 7:02:54 PM
+; Created: 10/3/2023 7:02:54 PM
 ; Authors: Trey Vokoun & Zach Ramsey
 ;====================================
 
@@ -104,15 +104,18 @@ Main:
 	
 
 ;===================| Functions |====================
-Running:
+Running: 
+	sbi PORTB, 3			; Turn on status LED. Not sure if this is the best spot. 
+	RunL1:					; implemented to prevent repeatedly turning on the LED
+
 	in Tmp_Reg, TIFR0		; load timer0 interrupt flag register
-	sbrs Tmp_Reg, 0			; if overflow flag is not set, loop Running
-	rjmp Running
+	sbrs Tmp_Reg, 0			; if overflow flag is not set, loop RunL1
+	rjmp RunL1
 
 	ldi Tmp_Reg, (1<<TOV0)	; clear overflow flag by setting logic 1?
 	out TIFR0, Tmp_Reg		; store timer0 interrupt flag register
 	dec Tmr_Cnt				; decrement timer counter
-	brne Running			; if timer counter is not 0, jump to Running
+	brne RunL1				; if timer counter is not 0, jump to RunL1
 	ldi Tmr_Cnt, 61			; otherwise, reload timer counter
 
 	cpi Ptrn_Cnt, 0			; if pattern counter is at beginning of array, jump to main
@@ -120,7 +123,13 @@ Running:
 	dec Ptrn_Cnt			; decrement pattern counter
 	sbiw zh:zl, 3			; decrement Z pointer
 	rcall Load_Pattern
-	rjmp Running
+	cpi Ptrn_Cnt, 1			; if pattern counter is at zero turn off status LEDs
+	breq LEDoff				; breaks to LEDoff routine
+	rjmp RunL1				; Jump to RunL1, again to avoid turning on the led repeatedly. 
+
+	LEDoff:
+		cbi PORTB, 3		; turn off status leds
+		rjmp RunL1			; jump back to finish countdown to --
 
 Pressed:
 	sbis PIND, 7			; if PB still pressed, jump to Pressed
