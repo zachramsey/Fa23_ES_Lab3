@@ -30,8 +30,9 @@ cbi DDRD,5  ; Board Pin 5 RPG B -> Board I/P: PD5
 .def RPG_Prev = R19			; previous RPG input state
 .def Ptrn_Cnt = R20			; Pattern counter
 .def Tmp_Reg = R21			; Temporary register
-.def Tmr_Cnt = R22		; Timer counter
-.def Ctrl_Reg = R23			; Custom state register
+.def Tmp_Reg2 = R22			; Secondary Temporary Register
+.def Tmr_Cnt = R23			; Timer counter
+.def Ctrl_Reg = R24			; Custom state register
 
 ; Custom state register masks
 .equ PB_State = 0x01		; bit 0: button A was pressed   (0:None     | 1:Pressed)
@@ -129,12 +130,40 @@ Running:
 
 	LEDoff:
 		cbi PORTB, 3		; turn off status leds
-		rjmp RunL1			; jump back to finish countdown to --
+	rjmp RunL1				; jump back to finish countdown to --
+
 
 Pressed:
-	sbis PIND, 7			; if PB still pressed, jump to Pressed
-	rjmp Pressed			
-	rjmp Running			; otherwise, jump to Running
+	;start a timer
+	;How do you start it?
+
+	PressedL1:				; 
+		
+		in Tmp_reg, TIFR0
+		sbrs Tmp_Reg, TOV0	;Is the timer at zero? Yes = bit set, so run Tmr_Zero routine
+		rjmp End_Tmr_Zero	;Jump over Tmr_Zero
+			Tmr_Zero:
+				;Stop timer 0
+				in Tmp_Reg, TCCR0B			;save config
+				ldi Tmp_Reg2, 0x00			;Stop timer 0				
+				out TCCR0B, Tmp_Reg2
+
+				;clear overflow flag
+				in Tmp_Reg2, TIFR0			;tmp <- TIFR0
+				sbr Tmp_Reg2, 1<<TOV0		;clear TOV0, write logic 1
+				out TIFR0, Tmp_Reg2
+				;reset timer
+			End_Tmr_Zero:
+		sbis PIND, 7		;Skip if button set AKA run if button released
+			rjmp Running	;Jump to running 
+
+		rjmp PressedL1		;Jump to Inner loop so we dont re-initialize the timer
+	
+	;Is button released?
+		;No? has the timer reached zero?
+			;Yes? reset
+		;Yes Start countdown by jumping to running
+	rjmp Main
 	
 RPG_Detent:
 	cpi RPG_Prev, 0x20 		; if prev state was '01', jump to Incr
