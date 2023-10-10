@@ -1,7 +1,7 @@
 ;====================================
-; RPG_Lab03.asm
+; StopwatchLab2.asm
 ;
-; Created: 10/3/2023 7:02:54 PM
+; Created: 9/12/2023 7:02:54 PM
 ; Authors: Trey Vokoun & Zach Ramsey
 ;====================================
 
@@ -30,8 +30,8 @@ cbi DDRD,5  ; Board Pin 5 RPG B -> Board I/P: PD5
 .def RPG_Prev = R19			; previous RPG input state
 .def Ptrn_Cnt = R20			; Pattern counter
 .def Tmp_Reg = R21			; Temporary register
-.def Tmp_Reg2 = R22			; Secondary Temporary Register
-.def Tmr_Cnt = R23			; Timer counter
+.def Tmr_Cnt = R22		; Timer counter
+.def Btn_Cnt = R23		; Button timer counter
 .def Ctrl_Reg = R24			; Custom state register
 
 ; Custom state register masks
@@ -80,6 +80,8 @@ Init:
 	ldi Tmp_Reg, 0x05		; configure prescaler to 1024
 	out TCCR0B, Tmp_Reg	; output configuration to TCCR0B
 
+	ldi Btn_Cnt, 61		; load button timer counter
+
 	; initialize Z pointer to Ptrns
 	ldi R30, low(Ptrns<<1)	; Load low byte of Patterns address
 	ldi R31, high(Ptrns<<1)	; Load high byte of Patterns address
@@ -105,65 +107,33 @@ Main:
 	
 
 ;===================| Functions |====================
-Running: 
-	sbi PORTB, 3			; Turn on status LED. Not sure if this is the best spot. 
-	RunL1:					; implemented to prevent repeatedly turning on the LED
-
+Running:
 	in Tmp_Reg, TIFR0		; load timer0 interrupt flag register
-	sbrs Tmp_Reg, 0			; if overflow flag is not set, loop RunL1
-	rjmp RunL1
+	sbrs Tmp_Reg, 0			; if overflow flag is not set, loop Running
+	rjmp Running
 
 	ldi Tmp_Reg, (1<<TOV0)	; clear overflow flag by setting logic 1?
 	out TIFR0, Tmp_Reg		; store timer0 interrupt flag register
 	dec Tmr_Cnt				; decrement timer counter
-	brne RunL1				; if timer counter is not 0, jump to RunL1
+	brne Running			; if timer counter is not 0, jump to Running
 	ldi Tmr_Cnt, 61			; otherwise, reload timer counter
+
+	sbis PIND, 7			; if PB is pressed, decrement button timer counter
+	dec Btn_Cnt
+	breq Init				; if button timer counter is 0, jump to Init
+	ldi Btn_Cnt, 61			; otherwise, reload button timer counter
 
 	cpi Ptrn_Cnt, 0			; if pattern counter is at beginning of array, jump to main
 	breq Main
 	dec Ptrn_Cnt			; decrement pattern counter
 	sbiw zh:zl, 3			; decrement Z pointer
 	rcall Load_Pattern
-	cpi Ptrn_Cnt, 1			; if pattern counter is at zero turn off status LEDs
-	breq LEDoff				; breaks to LEDoff routine
-	rjmp RunL1				; Jump to RunL1, again to avoid turning on the led repeatedly. 
-
-	LEDoff:
-		cbi PORTB, 3		; turn off status leds
-	rjmp RunL1				; jump back to finish countdown to --
-
+	rjmp Running
 
 Pressed:
-	;start a timer
-	;How do you start it?
-
-	PressedL1:				; 
-		
-		in Tmp_reg, TIFR0
-		sbrs Tmp_Reg, TOV0	;Is the timer at zero? Yes = bit set, so run Tmr_Zero routine
-		rjmp End_Tmr_Zero	;Jump over Tmr_Zero
-			Tmr_Zero:
-				;Stop timer 0
-				in Tmp_Reg, TCCR0B			;save config
-				ldi Tmp_Reg2, 0x00			;Stop timer 0				
-				out TCCR0B, Tmp_Reg2
-
-				;clear overflow flag
-				in Tmp_Reg2, TIFR0			;tmp <- TIFR0
-				sbr Tmp_Reg2, 1<<TOV0		;clear TOV0, write logic 1
-				out TIFR0, Tmp_Reg2
-				;reset timer
-			End_Tmr_Zero:
-		sbis PIND, 7		;Skip if button set AKA run if button released
-			rjmp Running	;Jump to running 
-
-		rjmp PressedL1		;Jump to Inner loop so we dont re-initialize the timer
-	
-	;Is button released?
-		;No? has the timer reached zero?
-			;Yes? reset
-		;Yes Start countdown by jumping to running
-	rjmp Main
+	sbis PIND, 7			; if PB still pressed, jump to Pressed
+	rjmp Pressed			
+	rjmp Running			; otherwise, jump to Running
 	
 RPG_Detent:
 	cpi RPG_Prev, 0x20 		; if prev state was '01', jump to Incr
