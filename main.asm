@@ -112,16 +112,17 @@ Running:
 	sbrs Tmp_Reg, 0			; if overflow flag is not set, loop Running
 	rjmp Running
 
+	sbis PIND, 7			; if PB is pressed, decrement button timer counter
+	dec Btn_Cnt
+	tst Btn_Cnt				; if button timer counter is 0, jump to Reset
+	breq Init				; if button timer counter is 0, jump to Init
+	ldi Btn_Cnt, 61			; otherwise, reload button timer counter
+
 	ldi Tmp_Reg, (1<<TOV0)	; clear overflow flag by setting logic 1?
 	out TIFR0, Tmp_Reg		; store timer0 interrupt flag register
 	dec Tmr_Cnt				; decrement timer counter
 	brne Running			; if timer counter is not 0, jump to Running
 	ldi Tmr_Cnt, 61			; otherwise, reload timer counter
-
-	sbis PIND, 7			; if PB is pressed, decrement button timer counter
-	dec Btn_Cnt
-	breq Init				; if button timer counter is 0, jump to Init
-	ldi Btn_Cnt, 61			; otherwise, reload button timer counter
 
 	cpi Ptrn_Cnt, 0			; if pattern counter is at beginning of array, jump to main
 	breq Main
