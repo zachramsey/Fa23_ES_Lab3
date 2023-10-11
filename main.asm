@@ -90,7 +90,13 @@ Countdown:
 	dec Ptrn_Cnt			; decrement pattern counter
 	sbiw zh:zl, 3			; decrement Z pointer
 	rcall Load_Pattern
+	cpi Ptrn_Cnt, 1			;if pattern counter is displaying zero, turn off status LEDS
+	breq LEDoff				;breaks to LEDoff routine
 	rjmp Running
+
+LEDoff:
+	cbi PORTB, 3			;turn off status LEDs
+	rjmp Running			;jump to running to finish countdown to --
 Wait:
 	sbis PIND, 7			; if PB is pressed, decrement btn_cnt
 	dec Btn_Cnt
