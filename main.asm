@@ -1,243 +1,175 @@
 ;====================================
-;Lab4LCDDisplay.asm
+; StopwatchLab2.asm
 ;
-; Created: 10/15/2023 7:02:54 PM
+; Created: 9/12/2023 7:02:54 PM
 ; Authors: Trey Vokoun & Zach Ramsey
 ;====================================
 
 .include "m328Pdef.inc"		; microcontroller-specific definitions
 .cseg
-.cseg
-.org 0x0000
-jmp Start					; Skip to start
+.org 0
 
-.org 0x0002					; INT0 vector
-jmp INT0_ISR				; Jump to INT0 ISR
-
-.org 0x000A					; PCINT2 vector
-jmp PCINT2_ISR				; Jump to PCINT2 ISR
-
-.org 0x0034					; Start of program memory
-rjmp Start
-msg:						; Create a static string in program memory.
-	.DB "Hi John!  "
-	.DW 0
-
-Start:
 ;==================| Configure I/O |=================
-; Inputs
-cbi DDRD, 2					; uC PD7 (INT0)		 <- PBS (Pushbutton)
-cbi DDRD, 4					; uC PD6 (PCINT[16]) <- RPG A
-cbi DDRD, 5  				; uC PD5 (PCINT[17]) <- RPG B
-; Outputs
-sbi DDRB, 3  				; uC PB3 		-> LCD E (Enable)
-sbi DDRB, 5					; uC PB5 		-> LCD RS (Register Select)
-sbi DDRC, 0					; uC PC0 		-> LCD DB4
-sbi DDRC, 1					; uC PC1 		-> LCD DB5
-sbi DDRC, 2					; uC PC2 		-> LCD DB6
-sbi DDRC, 3					; uC PC3 		-> LCD DB7
-sbi DDRD, 3  				; uC PD3 (OC0B) -> Fan PWM
+; Output to shiftreg SN74HC595
+sbi DDRB,0					; Board Pin 8 O/P: PB0 -> ShiftReg I/P: SER
+sbi DDRB,1					; Board Pin 9 O/P: PB1 -> ShiftReg I/P: RCLK
+sbi DDRB,2					; Board Pin 10 O/P: PB2 -> ShiftReg I/P: SRCLK
+sbi DDRB,3  				; Board Pin 11 O/P: PB3 -> Status LEDs
+; Input from pushbuttons
+cbi DDRD,7					; Board Pin 7 Pushbutton A -> Board I/P: PD7
+cbi DDRD,6					; Board Pin 6 RPG A -> Board I/P: PD6
+cbi DDRD,5  				; Board Pin 5 RPG B -> Board I/P: PD5
 
 ;==============| Configure Registers |===============
-.def Tmp_Reg = R16			; Temporary register
-.def Tmp_Data = R17			; Temporary data register
-.def Tmr_Cnt = R18			; Timer counter
-.def RPG_Curr = R19			; Current RPG input state
-.def RPG_Prev = R20			; previous RPG input state
-.def DC = R21				; Duty cycle counter
+.def Disp_Queue = R16		; Data queue for next digit to be displayed
+.def Disp_Decr = R17		; Count of remaining bits to be pushed from Disp_Queue; decrements from 8
+.def RPG_Curr = R18			; Current RPG input state
+.def RPG_Prev = R19			; previous RPG input state
+.def Ptrn_Cnt = R20			; Pattern counter
+.def Tmp_Reg = R21			; Temporary register
+.def Tmr_Cnt = R22			; Timer counter
+.def Btn_Cnt = R23			; Button timer counter
 
-
-;==================| Initialize LCD |================
-rcall Delay_100m			; wait to power up LCD
-
-ldi Tmp_Data, 0x03			; Set 8-bit mode
-rcall Send_Nibble
-rcall Delay_5m
-
-rcall Send_Nibble			; Set 8-bit mode
-rcall Delay_200u
-
-rcall Send_Nibble			; Set 8-bit mode
-rcall Delay_200u
-
-ldi Tmp_Data, 0x02			; Set 4-bit mode
-rcall Send_Nibble
-rcall Delay_5m
-
-ldi Tmp_Data, 0x28			; Set interface
-rcall Send_Instr
-rcall Delay_100u
-
-ldi Tmp_Data, 0x08			; dont shift display, hide cursor 
-rcall Send_Instr
-rcall Delay_100u
-
-ldi Tmp_Data, 0x01			; Clear and home display
-rcall Send_Instr
-rcall Delay_5m
-
-ldi Tmp_Data, 0x06			; move cursor right
-rcall Send_Instr
-rcall Delay_100u
-
-ldi Tmp_Data, 0x0C			; turn on display
-rcall Send_Instr
-rcall Delay_100u
-
-; display string on LCD for testing
-rcall Send_String
-
-;============| Initialize PWM on timer2 |============
-ldi Tmp_Reg, 0				; clear timer0
-sts TCNT2, Tmp_Reg
-
-ldi Tmp_Reg, 200			; set timer0 TOP val to 200
-sts OCR2A, Tmp_Reg
-
-ldi Tmp_Reg, 0x23			; configure timer0 to Fast PWM (mode 7)
-sts TCCR2A, Tmp_Reg
-ldi Tmp_Reg, 0x09
-sts TCCR2B, Tmp_Reg
-
-ldi Tmp_Reg, 0				; set timer0 duty cycle to 0 (DC = OCR0B / 200)
-sts OCR2B, Tmp_Reg
-
-ldi DC, 0					; initialize duty cycle counter to 0
-
-;=============| Initialize RPG Interupt |============
-ldi Tmp_Reg, (1<<PCINT20) | (1<<PCINT21)	; enable PCINT20 and PCINT21
-sts PCMSK2, Tmp_Reg
-ldi Tmp_Reg, (1<<PCIE2)						; enable PCINT2
-sts PCICR, Tmp_Reg
-
-;=============| Initialize PBS Interupt |============
-ldi Tmp_Reg, EICRA
-sbr Tmp_Reg, (1<<ISC01) | (1<<ISC00)		; enable rising edge detection on INT0
-sts EICRA, Tmp_Reg
-sbi EIMSK, INT0								; enable INT0
+;=========| Load Digit Patterns |==========
+rjmp Init					; don't execute data!
+Ptrns:
+	.dw 0x4040	; --
+	.dw 0x3F3F, 0x3F06, 0x3F5B, 0x3F4F, 0x3F66, 0x3F6D, 0x3F7D, 0x3F07, 0x3F7F, 0x3F67	; 0s
+	.dw 0x063F, 0x0606, 0x065B, 0x064F, 0x0666, 0x066D, 0x067D, 0x0607, 0x067F, 0x0667	; 10s
+	.dw 0x5B3F, 0x5B06, 0x5B5B, 0x5B4F, 0x5B66, 0x5B6D, 0x5B7D, 0x5B07, 0x5B7F, 0x5B67	; 20s
+	.dw 0x4F3F, 0x4F06, 0x4F5B, 0x4F4F, 0x4F66, 0x4F6D, 0x4F7D, 0x4F07, 0x4F7F, 0x4F67	; 30s
+	.dw 0x663F, 0x6606, 0x665B, 0x664F, 0x6666, 0x666D, 0x667D, 0x6607, 0x667F, 0x6667	; 40s
+	.dw 0x6D3F, 0x6D06, 0x6D5B, 0x6D4F, 0x6D66, 0x6D6D, 0x6D7D, 0x6D07, 0x6D7F, 0x6D67	; 50s
+	.dw 0x7D3F	; 60
 
 ;===================| Main Loop |====================
-sei							; Enable interupts globally
+Init:
+	cbi PORTB, 3			; clear indicator LEDs
+	; init timer0
+	ldi Tmp_Reg, 0x05		; configure prescaler to 1024
+	out TCCR0B, Tmp_Reg		; output configuration to TCCR0B
+	; init Z pointer to Ptrns
+	ldi R30, low(Ptrns<<1)	; Load low byte of Patterns address
+	ldi R31, high(Ptrns<<1)	; Load high byte of Patterns address
+	rcall Load_Pattern		; load initial pattern
+	; init various counters
+	ldi Ptrn_Cnt, 0			; init pattern counter to 0
+	ldi Tmr_Cnt, 61			; init timer counter to 61
+	ldi Btn_Cnt, 61			; init button counter to 61
+
 Main:
-	nop
-	rjmp Main				; loop Main
-
-;==============| PBS Interupt Handling |=============
-INT0_ISR:
-	lds Tmp_Reg, OCR2B		; load timer2 duty cycle into Tmp_Reg
-	cpi Tmp_Reg, 5			; if timer2 duty cycle is DC, turn fan off
-	brge Fan_Off
-	sts OCR2B, DC			; otherwise, turn fan on
-	rcall Delay_100u
-	reti
-Fan_Off:
-	ldi Tmp_Reg, 0			; set timer2 duty cycle to 0
-	sts OCR2B, Tmp_Reg
-	rcall Delay_100u
-	reti
-
-;==============| RPG Interupt Handling |=============
-PCINT2_ISR:
+	; check for button press
+	sbis PIND,7				; If PB is pressed -> Jump to Pressed
+	rjmp Pressed
+	; check for RPG rotation
 	in RPG_Curr, PIND
-	andi RPG_Curr, 0x30		; Mask bits 5 and 4
-	cpi RPG_Curr, 0x30		; if either is not set, return
+	andi RPG_Curr, 0x60		; Mask bits 6 and 5
+	cpi RPG_Curr, 0x60		; if both are set, jump to RPG_Detent
 	breq RPG_Detent
-	mov RPG_Prev, RPG_Curr	; update RPG state
-	reti
-RPG_Detent:
-	cpi RPG_Prev, 0x10 		; if prev state was '01', branch to Incr
-	breq Incr
-	cpi RPG_Prev, 0x20 		; if prev state was '10', branch to Decr
-	breq Decr
-	reti
-Incr:
-	ldi RPG_Prev, 0x30		; update RPG state to '11'
-	cpi DC, 200				; if DC is at 100%, return
-	breq PCINT2_Exit
-	inc DC
-	sts OCR2B, DC			; update timer0 duty cycle
-	reti
-Decr:
-	ldi RPG_Prev, 0x30		; update RPG state to '11'
-	cpi DC, 0				; if DC is at 0%, return
-	breq PCINT2_Exit
-	dec DC					; decrement DC counter
-	sts OCR2B, DC			; update timer0 duty cycle
-	reti
-PCINT2_Exit:
-	reti
+	mov RPG_Prev, RPG_Curr	; otherwise update previous input state
+	; loop Main
+	rjmp Main
 
-;===============| LCD Communication |================
-Send_String:
-	ldi Tmp_Data, 0x80		; set DDRAM address to 0x00
-	rcall Send_Instr
-	sbi PORTB, 5			; set R/S | Data mode
-	nop
-	ldi r24, 10 			; r24 <-- length of the string
-	ldi r30, LOW(2*msg) 	; Load Z register low
-	ldi r31, HIGH(2*msg)	; Load Z register high
-	Next_Char:
-		lpm	Tmp_Data, Z+	; load byte from prog mem at Z in Tmp_Reg, post-increment Z
-		sbi PORTB, 5		; set R/S | select data register
-		cbi PORTB, 3		; clear Enable
-		swap Tmp_Data		; swap nibbles
-		rcall Send_Nibble	; send upper nibble
-		swap Tmp_Data		; swap nibbles back
-		rcall Send_Nibble	; send lower nibble
-		dec r24				; Repeat until all characters are out
-		brne Next_Char
-		ret
-Send_Instr:
-	cbi PORTB, 5			; clear R/S | select instruction register
-	cbi PORTB, 3			; clear Enable
-	swap Tmp_Data			; swap nibbles
-	rcall Send_Nibble		; send upper nibble
-	swap Tmp_Data			; swap nibbles back
-	rcall Send_Nibble		; send lower nibble
-	ret
-Send_Nibble:
-	out PORTC, Tmp_Data		; send upper nibble
-	nop
-	sbi PORTB, 3			; drive E high (start strobe)
-	nop						; 312 ns delay
-	nop
-	nop
-	nop
-	nop
-	cbi PORTB, 3			; drive E low
-	rcall Delay_100u		; give LCD time to process data
-	ret
-
-;==================| Time Delays |===================
-
-Delay_100u:					; 112us delay
-	ldi Tmr_Cnt,7			; set  timer overflow counter to 7
-	ldi Tmp_Reg, 0x01		; set prescaler to none
-	out TCCR0B, Tmp_Reg		; output prescaler configurationv
-	rjmp Delay_loop			; begin delay
-Delay_200u:					; 208us delay
-	ldi Tmr_Cnt, 13			; set timer overflow counter to 13
-	ldi Tmp_Reg, 0x01		; set prescaler to none
-	out TCCR0B, Tmp_Reg		; output prescaler configuration
-	rjmp Delay_loop			; begin delay
-Delay_5m:					; 5.12ms delay
-	ldi Tmr_Cnt, 40			; set timer overflow counter to 40
-	ldi Tmp_Reg, 0x02		; set prescaler to 8
-	out TCCR0B, Tmp_Reg		; output prescaler configuration
-	rjmp Delay_loop			; begin delay
-Delay_100m:					; 100.35ms delay
-	ldi Tmr_Cnt, 98			; set timer overflow counter to 98
-	ldi Tmp_Reg, 0x03		; set prescaler to 64
-	out TCCR0B, Tmp_Reg		; output prescaler configuration
-	rjmp Delay_loop			; begin delay
-Delay_loop:
-	in Tmp_Reg, TIFR0		; input timer2 interrupt flag register
-	sbrs Tmp_Reg, 0			; if overflow flag is not set, loop
-	rjmp Delay_loop
-
+;===============| Running Functions |================
+Running:
+	in Tmp_Reg, TIFR0		; input timer0 interrupt flag register
+	sbrs Tmp_Reg, 0			; if overflow flag is not set, loop Running
+	rjmp Running
 	ldi Tmp_Reg, (1<<TOV0)	; acknowledge overflow flag
 	out TIFR0, Tmp_Reg		; output to timer0 interrupt flag register
+	tst Btn_Cnt				; if button timer counter is not 0, jump to Wait
+	brne Wait
+	sbic PIND, 7			; else if PB is not pressed, reset clock
+	rjmp Init
+Countdown:
+	dec Tmr_Cnt				; decrement timer counter
+	brne Running			; if timer counter is not 0, jump to Running
+	ldi Tmr_Cnt, 61			; otherwise, reload timer counter
+	cpi Ptrn_Cnt, 1			; if pattern counter is at 0, reset clock
+	breq Init
+	dec Ptrn_Cnt			; decrement pattern counter
+	sbiw zh:zl, 3			; decrement Z pointer
+	rcall Load_Pattern
+	cpi Ptrn_Cnt, 1			;if pattern counter is displaying zero, turn off status LEDS
+	breq LEDoff				;breaks to LEDoff routine
+	rjmp Running
 
-	dec Tmr_Cnt				; Decrement Timer counter
-	brne Delay_loop			; if Timer counter is zero, loop
-	ret						; otherwise, return
+LEDoff:
+	cbi PORTB, 3			;turn off status LEDs
+	rjmp Running			;jump to running to finish countdown to --
+Wait:
+	sbis PIND, 7			; if PB is pressed, decrement btn_cnt
+	dec Btn_Cnt
+	sbic PIND, 7			; if PB is not pressed, reset btn_cnt
+	ldi Btn_Cnt, 61
+	rjmp Countdown
+
+;===============| Stopped Functions |================
+Pressed:
+	cpi Ptrn_Cnt, 0			; if pattern counter is at 0, jump to Main
+	breq Main
+	sbis PIND, 7			; if PB still pressed, jump to Pressed
+	rjmp Pressed
+	sbi PORTB, 3
+	rjmp Running			; otherwise, jump to Running
+RPG_Detent:
+	cpi RPG_Prev, 0x20 		; if prev state was '01', jump to Incr
+	breq Incr
+	cpi RPG_Prev, 0x40 		; if prev state was '10', jump to Decr
+	breq Decr
+	rjmp Main				; otherwise, jump to Main
+Incr:
+	ldi RPG_Prev, 0x60		; set detent input state
+	cpi Ptrn_Cnt, 61		; if pattern counter is at end of array, jump to main
+	breq Main
+	inc Ptrn_Cnt			; increment pattern counter
+	adiw zh:zl, 1			; increment Z pointer
+	rcall Load_Pattern
+	rjmp Main
+Decr:
+	ldi RPG_Prev, 0x60		; set detent input state
+	cpi Ptrn_Cnt, 0			; if pattern counter is at beginning of array, jump to main
+	breq Main
+	dec Ptrn_Cnt			; decrement pattern counter
+	sbiw zh:zl, 3			; decrement Z pointer
+	rcall Load_Pattern
+	rjmp Main
+
+;===============| Display Subroutines |===============
+Load_Pattern:
+	lpm Disp_Queue, Z+		; load first byte of word
+	rcall display
+	lpm Disp_Queue, Z		; load second byte of word
+	rcall display
+	ret
+display:
+	; backup used registers on stack
+	push Disp_Queue			; Push Disp_Queue to stack
+	push Disp_Decr			; Push Disp_Decr to stack
+	in Disp_Decr, SREG		; Input from SREG -> Disp_Decr
+	push Disp_Decr			; Push Disp_Decr to stack
+	ldi Disp_Decr, 8		; loop -> test all 8 bits
+loop:
+	rol Disp_Queue			; rotate left through Carry
+	BRCS set_ser			; branch if Carry is set
+	cbi PORTB,0				; clear SER (SER -> 0)
+	rjmp end
+set_ser:
+	sbi PORTB,0				; set SER (SER -> 1)
+end:
+	; generate SRCLK pulse
+	sbi PORTB,2				; SRCLK on
+	nop						; pause to help circuit catch up
+	cbi PORTB,2				; SRCLK off
+	dec Disp_Decr
+	brne loop
+	; generate RCLK pulse
+	sbi PORTB,1				; RCLK on
+	nop						; pause to help circuit catch up
+	cbi PORTB,1				; RCLK off
+	; restore registers from stack
+	pop Disp_Decr
+	out SREG, Disp_Decr
+	pop Disp_Decr
+	pop Disp_Queue
+	ret
